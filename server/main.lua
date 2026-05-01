@@ -50,10 +50,52 @@ RegisterNetEvent('aj_mdt:addWanted', function(data)
     })
 end)
 
--- Vehicles
+-- Vehicles from QBCore player_vehicles + MDT flags
 QBCore.Functions.CreateCallback('aj_mdt:getVehicles', function(source, cb)
-    local result = MySQL.query.await('SELECT * FROM aj_mdt_vehicle_flags ORDER BY id DESC', {})
-    cb(result)
+    local result = MySQL.query.await([[
+        SELECT
+            pv.id,
+            pv.citizenid,
+            pv.vehicle,
+            pv.plate,
+            pv.garage,
+            pv.state,
+            p.charinfo,
+            vf.violation,
+            vf.created_at AS flag_created_at
+        FROM player_vehicles pv
+        LEFT JOIN players p ON p.citizenid = pv.citizenid
+        LEFT JOIN aj_mdt_vehicle_flags vf ON vf.plate = pv.plate
+        ORDER BY pv.id DESC
+    ]], {})
+
+    local data = {}
+
+    for _, v in pairs(result) do
+        local ownerName = 'Unknown'
+
+        if v.charinfo then
+            local ok, charinfo = pcall(json.decode, v.charinfo)
+            if ok and charinfo then
+                ownerName = (charinfo.firstname or '') .. ' ' .. (charinfo.lastname or '')
+            end
+        end
+
+        table.insert(data, {
+            id = v.id,
+            citizenid = v.citizenid,
+            plate = v.plate,
+            vehicle = v.vehicle,
+            garage = v.garage,
+            state = v.state,
+            owner_name = ownerName,
+            violation = v.violation or 'لا يوجد',
+            is_flagged = v.violation ~= nil,
+            flag_created_at = v.flag_created_at
+        })
+    end
+
+    cb(data)
 end)
 
 RegisterNetEvent('aj_mdt:addVehicle', function(data)

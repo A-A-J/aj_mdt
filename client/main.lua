@@ -10,6 +10,36 @@ local function HasPermission()
     return cfg and cfg.permissions and cfg.permissions.access
 end
 
+local function GetOfficerInfo()
+    local Player = QBCore.Functions.GetPlayerData()
+    Player = Player or {}
+
+    local charinfo = Player.charinfo or {}
+    local job = Player.job or {}
+    local metadata = Player.metadata or {}
+    local grade = job.grade or {}
+
+    local firstName = charinfo.firstname or ''
+    local lastName = charinfo.lastname or ''
+    local fullName = (firstName .. ' ' .. lastName):gsub('^%s+', ''):gsub('%s+$', '')
+
+    if fullName == '' then
+        fullName = Player.name or 'Officer'
+    end
+
+    local image = metadata.mugshot or metadata.image or metadata.photo or metadata.profilepic or metadata.profile_picture or ''
+    local jobLabel = job.label or job.name or 'Officer'
+    local gradeLabel = grade.name or grade.label or grade.level or grade.grade or ''
+
+    return {
+        name = fullName,
+        citizenid = Player.citizenid or '',
+        image = image,
+        job = jobLabel,
+        grade = tostring(gradeLabel or '')
+    }
+end
+
 local function CloseMdt()
     SetNuiFocus(false, false)
     SetNuiFocusKeepInput(false)
@@ -28,6 +58,7 @@ RegisterCommand('mdt', function()
         SetNuiFocusKeepInput(false)
         SendNUIMessage({
             action = 'open',
+            officer = GetOfficerInfo(),
             config = {
                 locale = Config.Locale
             }

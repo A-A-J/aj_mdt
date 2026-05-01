@@ -1,9 +1,10 @@
 let state = { lang: 'ar', citizens: [], cases: [], wanted: [], vehicles: [], laws: [] }
 let currentPage = 'dashboard'
+let currentProfile = null
 
 const labels = {
-  ar: { dashboard:'الرئيسية', citizens:'المواطنين', cases:'القضايا', wanted:'المطلوبين', vehicles:'المركبات', laws:'دليل المخالفات والقضايا', suspicious:'المعاملات البنكية المشبوهة', latestCases:'آخر القضايا', wantedList:'المطلوبين', activeOfficers:'الأكثر تفاعلًا', addCase:'إضافة قضية', addWanted:'إضافة مطلوب', addVehicle:'تسجيل مخالفة مركبة', search:'بحث...', save:'حفظ', close:'إغلاق' },
-  en: { dashboard:'Dashboard', citizens:'Citizens', cases:'Cases', wanted:'Wanted', vehicles:'Vehicles', laws:'Laws Guide', suspicious:'Suspicious Bank Transactions', latestCases:'Latest Cases', wantedList:'Wanted List', activeOfficers:'Most Active', addCase:'Add Case', addWanted:'Add Wanted', addVehicle:'Flag Vehicle', search:'Search...', save:'Save', close:'Close' }
+  ar: { dashboard:'الرئيسية', citizens:'المواطنين', cases:'القضايا', wanted:'المطلوبين', vehicles:'المركبات', laws:'دليل المخالفات والقضايا', suspicious:'المعاملات البنكية المشبوهة', latestCases:'آخر القضايا', wantedList:'المطلوبين', activeOfficers:'الأكثر تفاعلًا', addCase:'إضافة قضية', addWanted:'إضافة مطلوب', addVehicle:'تسجيل مخالفة مركبة', search:'بحث...', save:'حفظ', close:'إغلاق', back:'رجوع', info:'المعلومات', properties:'الأملاك' },
+  en: { dashboard:'Dashboard', citizens:'Citizens', cases:'Cases', wanted:'Wanted', vehicles:'Vehicles', laws:'Laws Guide', suspicious:'Suspicious Bank Transactions', latestCases:'Latest Cases', wantedList:'Wanted List', activeOfficers:'Most Active', addCase:'Add Case', addWanted:'Add Wanted', addVehicle:'Flag Vehicle', search:'Search...', save:'Save', close:'Close', back:'Back', info:'Info', properties:'Properties' }
 }
 
 function t(k){ return labels[state.lang][k] || k }
@@ -41,7 +42,25 @@ function officerStats(){ const x={}; state.cases.forEach(c=>x[c.officer_name]=(x
 async function addCase(){ await nui('addCase',{title:val('caseTitle'),citizen:val('caseCitizen'),description:val('caseDesc')}); await fetchData(); show('cases') }
 async function addWanted(){ await nui('addWanted',{name:val('wantedName'),reason:val('wantedReason'),danger:val('wantedDanger')||'medium'}); await fetchData(); show('wanted') }
 async function addVehicle(){ await nui('addVehicleFlag',{plate:val('plate'),owner:val('owner'),violation:val('violation')}); await fetchData(); show('vehicles') }
-function citizenDetails(id){ const c=state.citizens.find(x=>x.citizenid===id); if(c) alert(`${c.name}\nCID: ${c.citizenid}\nPhone: ${c.phone}\nJob: ${c.job}\nBank: ${c.bank}\nCash: ${c.cash}`) }
+
+async function citizenDetails(id){
+  const data = await nui('getCitizenProfile', { citizenid: id })
+  if (data.error) return alert('Citizen not found')
+  currentProfile = data
+  currentPage = 'profile'
+  renderMenu()
+  document.getElementById('content').innerHTML = renderProfile(data)
+}
+
+function renderProfile(data){
+  const c = data.citizen
+  return `<div class="profile"><div class="profile-header"><div><h1>👤 ${c.name}</h1><p>${c.citizenid} • ${c.phone} • ${c.job}</p></div><button onclick="show('citizens')">${t('back')}</button></div><div class="stats"><div class="card"><small>Bank</small><b>$${Number(c.bank||0).toLocaleString()}</b></div><div class="card"><small>Cash</small><b>$${Number(c.cash||0).toLocaleString()}</b></div><div class="card"><small>Wanted</small><b>${data.wanted.length}</b></div></div><div class="tabs"><button onclick="profileTab('info')">📄 ${t('info')}</button><button onclick="profileTab('vehicles')">🚗 ${t('vehicles')}</button><button onclick="profileTab('properties')">🏠 ${t('properties')}</button><button onclick="profileTab('cases')">📁 ${t('cases')}</button><button onclick="profileTab('wanted')">🚨 ${t('wanted')}</button></div><section id="profileContent" class="panel">${profileInfo(c)}</section></div>`
+}
+function profileTab(tab){ const d=currentProfile; const el=document.getElementById('profileContent'); if(!d||!el)return; if(tab==='info')el.innerHTML=profileInfo(d.citizen); if(tab==='vehicles')el.innerHTML=profileVehicles(d.vehicles); if(tab==='properties')el.innerHTML=profileProperties(d.properties); if(tab==='cases')el.innerHTML=profileCases(d.cases); if(tab==='wanted')el.innerHTML=wantedRows(d.wanted) }
+function profileInfo(c){ return `<div class="profile-grid"><div class="card"><small>CID</small><b>${c.citizenid}</b></div><div class="card"><small>Phone</small><b>${c.phone}</b></div><div class="card"><small>Birthdate</small><b>${c.birthdate}</b></div><div class="card"><small>Nationality</small><b>${c.nationality}</b></div><div class="card"><small>Job</small><b>${c.job}</b></div><div class="card"><small>Grade</small><b>${c.grade}</b></div></div>` }
+function profileVehicles(list){ return list.map(v=>`<div class="row"><span><b>${v.plate}</b><small>${v.vehicle} • ${v.garage||'N/A'}</small></span><em>${v.state}</em></div>`).join('') || '<div class="empty">لا يوجد مركبات</div>' }
+function profileCases(list){ return caseRows(list) }
+function profileProperties(list){ return list.map(p=>`<div class="row"><span><b>🏠 ${p.house || p.name || p.apartment_type || p.apartment || 'Property'}</b><small>${p.identifier || p.citizenid || ''}</small></span><em>${p.keyholders ? 'Keys' : ''}</em></div>`).join('') || '<div class="empty">لا يوجد أملاك</div>' }
 function vehicleDetails(plate){ const v=state.vehicles.find(x=>x.plate===plate); if(v) alert(`${v.plate}\nVehicle: ${v.vehicle}\nOwner: ${v.owner_name||v.owner}\nGarage: ${v.garage}\nViolation: ${v.violation}`) }
 function val(id){ return document.getElementById(id)?.value || '' }
 function filterTable(value, cls){ document.querySelectorAll('.'+cls).forEach(el=>el.style.display=el.innerText.toLowerCase().includes(value.toLowerCase())?'flex':'none') }

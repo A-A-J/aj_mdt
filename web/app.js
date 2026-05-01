@@ -31,13 +31,22 @@ window.addEventListener('message', async e => {
     document.getElementById('app').classList.remove('hidden')
     await fetchData()
     renderHeader()
-    show(currentPage || 'dashboard')
+    show(currentPage === 'profile' ? 'dashboard' : (currentPage || 'dashboard'))
   }
   if(e.data.action === 'forceClose') forceCloseMdt()
 })
 
 async function fetchData(){ const data = await nui('getData'); if(!data.error) state = {...state,...data} }
-async function refreshMdt(){ await fetchData(); renderHeader(); show(currentPage); toast('تم تحديث البيانات') }
+async function refreshMdt(){
+  await fetchData()
+  renderHeader()
+  if(currentPage === 'profile' && currentProfile?.citizen?.citizenid){
+    await citizenDetails(currentProfile.citizen.citizenid)
+  } else {
+    show(currentPage || 'dashboard')
+  }
+  toast('تم تحديث البيانات')
+}
 
 function renderHeader(){
   const officer = state.officer || {}

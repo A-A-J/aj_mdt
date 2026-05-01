@@ -2,6 +2,10 @@
 
 AJ MDT is a QBCore Police MDT resource for FiveM with Arabic and English NUI support.
 
+## Preview
+
+![AJ MDT UI](docs/preview.svg)
+
 ## Features
 
 - Arabic / English interface

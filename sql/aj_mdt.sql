@@ -5,13 +5,30 @@ CREATE TABLE IF NOT EXISTS `aj_mdt_cases` (
   `citizen_name` varchar(150) DEFAULT NULL,
   `officer_citizenid` varchar(50) DEFAULT NULL,
   `officer_name` varchar(150) DEFAULT NULL,
-  `status` varchar(50) NOT NULL DEFAULT 'open',
+  `status` varchar(50) NOT NULL DEFAULT 'غير منفذة',
+  `case_type` varchar(50) NOT NULL DEFAULT 'قضية',
+  `content` longtext DEFAULT NULL,
   `description` text DEFAULT NULL,
+  `officers` longtext DEFAULT NULL,
+  `suspects` longtext DEFAULT NULL,
+  `violations` longtext DEFAULT NULL,
+  `action_taken` varchar(50) DEFAULT NULL,
+  `extra_details` text DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   KEY `citizenid` (`citizenid`),
-  KEY `status` (`status`)
+  KEY `status` (`status`),
+  KEY `case_type` (`case_type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE `aj_mdt_cases`
+  ADD COLUMN IF NOT EXISTS `case_type` varchar(50) NOT NULL DEFAULT 'قضية',
+  ADD COLUMN IF NOT EXISTS `content` longtext DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `officers` longtext DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `suspects` longtext DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `violations` longtext DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `action_taken` varchar(50) DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `extra_details` text DEFAULT NULL;
 
 CREATE TABLE IF NOT EXISTS `aj_mdt_wanted` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
@@ -42,14 +59,20 @@ CREATE TABLE IF NOT EXISTS `aj_mdt_laws` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `title_ar` varchar(150) NOT NULL,
   `title_en` varchar(150) NOT NULL,
+  `type` varchar(50) NOT NULL DEFAULT 'مخالفة',
   `fine` int(11) NOT NULL DEFAULT 0,
   `jail` int(11) NOT NULL DEFAULT 0,
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  KEY `type` (`type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-INSERT INTO `aj_mdt_laws` (`title_ar`, `title_en`, `fine`, `jail`) VALUES
-('السرقة', 'Theft', 1500, 0),
-('الاعتداء', 'Assault', 2500, 10),
-('الهروب من الشرطة', 'Evading Police', 3000, 15),
-('حيازة سلاح غير مرخص', 'Illegal Weapon Possession', 5000, 25),
-('غسيل أموال', 'Money Laundering', 10000, 40);
+ALTER TABLE `aj_mdt_laws`
+  ADD COLUMN IF NOT EXISTS `type` varchar(50) NOT NULL DEFAULT 'مخالفة';
+
+INSERT INTO `aj_mdt_laws` (`title_ar`, `title_en`, `type`, `fine`, `jail`) VALUES
+('السرقة', 'Theft', 'قضية', 1500, 0),
+('الاعتداء', 'Assault', 'قضية', 2500, 10),
+('الهروب من الشرطة', 'Evading Police', 'مخالفة', 3000, 15),
+('حيازة سلاح غير مرخص', 'Illegal Weapon Possession', 'قضية', 5000, 25),
+('غسيل أموال', 'Money Laundering', 'قضية', 10000, 40)
+ON DUPLICATE KEY UPDATE title_ar = VALUES(title_ar);

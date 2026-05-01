@@ -6,6 +6,7 @@ Config.Locale = 'ar' -- ar / en
 -- Supported permissions:
 -- access: open MDT and read data
 -- create_case: create cases
+-- edit_case: edit case records and linked violations
 -- execute_case: mark a case as executed
 -- create_wanted: legacy/manual list control (currently disabled by case-based system)
 -- flag_vehicle: add vehicle flags
@@ -20,6 +21,7 @@ Config.AuthorizedJobs = {
         permissions = {
             access = true,
             create_case = true,
+            edit_case = false,
             execute_case = true,
             create_wanted = false,
             flag_vehicle = true,
@@ -32,6 +34,7 @@ Config.AuthorizedJobs = {
         grades = {
             [4] = {
                 permissions = {
+                    edit_case = true,
                     delete_case = true,
                     view_logs = true,
                     edit_profile = true
@@ -45,6 +48,7 @@ Config.AuthorizedJobs = {
         permissions = {
             access = true,
             create_case = true,
+            edit_case = true,
             execute_case = true,
             create_wanted = false,
             flag_vehicle = false,

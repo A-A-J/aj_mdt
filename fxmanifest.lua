@@ -15,16 +15,20 @@ shared_scripts {
 }
 
 client_scripts {
-    'client/main.lua'
+    'client/main.lua',
+    'client/laws.lua'
 }
 
 server_scripts {
     '@oxmysql/lib/MySQL.lua',
-    'server/main.lua'
+    'server/main.lua',
+    'server/laws.lua'
 }
 
 files {
     'web/index.html',
     'web/style.css',
-    'web/app.js'
+    'web/app.js',
+    'web/laws.js',
+    'web/laws.css'
 }

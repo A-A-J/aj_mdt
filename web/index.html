@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AJ MDT</title>
+<title>MDT</title>
 <link rel="stylesheet" href="https://cdn.datatables.net/2.0.8/css/dataTables.dataTables.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.snow.css">
 <link rel="stylesheet" href="style.css">
@@ -11,8 +11,18 @@
 <body>
 <div id="app" class="hidden">
   <div class="container">
-    <aside class="sidebar" id="menu"></aside>
-    <main class="content" id="content"></main>
+    <header class="mdt-header">
+      <div id="officerInfo" class="officer-info"></div>
+      <div id="headerSearch" class="header-search"></div>
+      <div class="header-actions">
+        <button class="primary" onclick="refreshMdt()">تحديث</button>
+        <button class="danger" onclick="closeMdt()">إغلاق</button>
+      </div>
+    </header>
+    <div class="mdt-body">
+      <aside class="sidebar" id="menu"></aside>
+      <main class="content" id="content"></main>
+    </div>
   </div>
 </div>
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>

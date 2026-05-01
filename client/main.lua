@@ -11,8 +11,7 @@ RegisterCommand('mdt', function()
         SendNUIMessage({
             action = 'open',
             config = {
-                locale = Config.Locale,
-                ui = Config.UI
+                locale = Config.Locale
             }
         })
     end

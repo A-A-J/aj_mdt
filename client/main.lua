@@ -23,6 +23,12 @@ RegisterNUICallback('getData', function(_, cb)
     end)
 end)
 
+RegisterNUICallback('getCitizenProfile', function(data, cb)
+    QBCore.Functions.TriggerCallback('aj_mdt:getCitizenProfile', function(result)
+        cb(result)
+    end, data.citizenid)
+end)
+
 RegisterNUICallback('addCase', function(data, cb)
     TriggerServerEvent('aj_mdt:addCase', data)
     Wait(250)

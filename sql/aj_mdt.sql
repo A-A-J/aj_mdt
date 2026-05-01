@@ -84,21 +84,29 @@ CREATE TABLE IF NOT EXISTS `aj_mdt_vehicle_flags` (
 CREATE TABLE IF NOT EXISTS `aj_mdt_laws` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `title_ar` varchar(150) NOT NULL,
-  `title_en` varchar(150) NOT NULL,
+  `title_en` varchar(150) NOT NULL DEFAULT '',
   `type` varchar(50) NOT NULL DEFAULT 'مخالفة',
   `fine` int(11) NOT NULL DEFAULT 0,
   `jail` int(11) NOT NULL DEFAULT 0,
+  `created_by` varchar(150) DEFAULT NULL,
+  `updated_by` varchar(150) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NULL DEFAULT NULL ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
   KEY `type` (`type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 ALTER TABLE `aj_mdt_laws`
-  ADD COLUMN IF NOT EXISTS `type` varchar(50) NOT NULL DEFAULT 'مخالفة';
+  ADD COLUMN IF NOT EXISTS `type` varchar(50) NOT NULL DEFAULT 'مخالفة',
+  ADD COLUMN IF NOT EXISTS `created_by` varchar(150) DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `updated_by` varchar(150) DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  ADD COLUMN IF NOT EXISTS `updated_at` timestamp NULL DEFAULT NULL ON UPDATE current_timestamp();
 
-INSERT INTO `aj_mdt_laws` (`title_ar`, `title_en`, `type`, `fine`, `jail`) VALUES
-('السرقة', 'Theft', 'قضية', 1500, 0),
-('الاعتداء', 'Assault', 'قضية', 2500, 10),
-('الهروب من الشرطة', 'Evading Police', 'مخالفة', 3000, 15),
-('حيازة سلاح غير مرخص', 'Illegal Weapon Possession', 'قضية', 5000, 25),
-('غسيل أموال', 'Money Laundering', 'قضية', 10000, 40)
+INSERT INTO `aj_mdt_laws` (`title_ar`, `title_en`, `type`, `fine`, `jail`, `created_by`) VALUES
+('السرقة', 'Theft', 'قضية', 1500, 0, 'System'),
+('الاعتداء', 'Assault', 'قضية', 2500, 10, 'System'),
+('الهروب من الشرطة', 'Evading Police', 'مخالفة', 3000, 15, 'System'),
+('حيازة سلاح غير مرخص', 'Illegal Weapon Possession', 'قضية', 5000, 25, 'System'),
+('غسيل أموال', 'Money Laundering', 'قضية', 10000, 40, 'System')
 ON DUPLICATE KEY UPDATE title_ar = VALUES(title_ar);

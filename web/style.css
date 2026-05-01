@@ -1,7 +1,12 @@
 body { margin: 0; font-family: Arial; background: transparent; }
 .hidden { display: none; }
 
-.container { width: 1080px; height: 900px; background: #0f141a; color: #e6edf3; display: flex; border-radius: 12px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.6); }
+:root {
+  --ui-width: 1080px;
+  --ui-height: 900px;
+}
+
+.container { width: var(--ui-width); height: var(--ui-height); background: #0f141a; color: #e6edf3; display: flex; border-radius: 12px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.6); }
 
 .sidebar { width: 220px; background: #0b1016; display: flex; flex-direction: column; gap: 6px; padding: 10px; }
 .brand { display:flex; align-items:center; gap:8px; padding:10px; font-size:18px; }

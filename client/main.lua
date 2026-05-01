@@ -10,9 +10,16 @@ local function HasPermission()
     return cfg and cfg.permissions and cfg.permissions.access
 end
 
+local function CloseMdt()
+    SetNuiFocus(false, false)
+    SetNuiFocusKeepInput(false)
+    SendNUIMessage({ action = 'forceClose' })
+end
+
 RegisterCommand('mdt', function()
     if HasPermission() then
         SetNuiFocus(true, true)
+        SetNuiFocusKeepInput(false)
         SendNUIMessage({
             action = 'open',
             config = {
@@ -23,7 +30,7 @@ RegisterCommand('mdt', function()
 end)
 
 RegisterNUICallback('close', function(_, cb)
-    SetNuiFocus(false, false)
+    CloseMdt()
     cb({ ok = true })
 end)
 
@@ -53,6 +60,14 @@ end)
 
 RegisterNUICallback('addCase', function(data, cb)
     TriggerServerEvent('aj_mdt:addCase', data)
+    Wait(350)
+    QBCore.Functions.TriggerCallback('aj_mdt:getAllData', function(result)
+        cb(result or {})
+    end)
+end)
+
+RegisterNUICallback('updateCase', function(data, cb)
+    TriggerServerEvent('aj_mdt:updateCase', data)
     Wait(350)
     QBCore.Functions.TriggerCallback('aj_mdt:getAllData', function(result)
         cb(result or {})

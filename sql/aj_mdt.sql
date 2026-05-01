@@ -30,6 +30,32 @@ ALTER TABLE `aj_mdt_cases`
   ADD COLUMN IF NOT EXISTS `action_taken` varchar(50) DEFAULT NULL,
   ADD COLUMN IF NOT EXISTS `extra_details` text DEFAULT NULL;
 
+CREATE TABLE IF NOT EXISTS `aj_mdt_citizen_images` (
+  `citizenid` varchar(50) NOT NULL,
+  `image_url` text DEFAULT NULL,
+  `updated_by` varchar(150) DEFAULT NULL,
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`citizenid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `aj_mdt_audit_logs` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `citizenid` varchar(50) DEFAULT NULL,
+  `officer_name` varchar(150) DEFAULT NULL,
+  `action` varchar(100) NOT NULL,
+  `target_type` varchar(50) DEFAULT NULL,
+  `target_id` varchar(100) DEFAULT NULL,
+  `old_data` longtext DEFAULT NULL,
+  `new_data` longtext DEFAULT NULL,
+  `description` text DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `action` (`action`),
+  KEY `target_type` (`target_type`),
+  KEY `target_id` (`target_id`),
+  KEY `citizenid` (`citizenid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS `aj_mdt_wanted` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `citizenid` varchar(50) DEFAULT NULL,

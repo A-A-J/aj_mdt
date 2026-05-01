@@ -11,29 +11,7 @@ local function GetJobConfig(src)
     return jobCfg, Player, job
 end
 
-local function HasPermission(src, permission)
-    local jobCfg, _, job = GetJobConfig(src)
-    if not jobCfg or not jobCfg.permissions then return false end
-
-    local permissions = {}
-    for key, value in pairs(jobCfg.permissions or {}) do
-        permissions[key] = value
-    end
-
-    local gradeLevel = job and job.grade and (job.grade.level or job.grade.grade or job.grade) or 0
-    gradeLevel = tonumber(gradeLevel) or 0
-
-    local gradeCfg = jobCfg.grades and jobCfg.grades[gradeLevel]
-    if gradeCfg and gradeCfg.permissions then
-        for key, value in pairs(gradeCfg.permissions) do
-            permissions[key] = value
-        end
-    end
-
-    return permissions[permission] == true
-end
-
-local function GetPermissions(src)
+local function BuildPermissions(src)
     local jobCfg, _, job = GetJobConfig(src)
     local permissions = {}
     if not jobCfg then return permissions end
@@ -53,6 +31,10 @@ local function GetPermissions(src)
     end
 
     return permissions
+end
+
+local function HasPermission(src, permission)
+    return BuildPermissions(src)[permission] == true
 end
 
 local function OfficerName(src)
@@ -76,41 +58,30 @@ local function TableExists(name)
 end
 
 local function NormalizeCases(cases)
-    for _, c in pairs(cases or {}) do
-        c.officers = SafeJson(c.officers)
-        c.suspects = SafeJson(c.suspects)
-        c.violations = SafeJson(c.violations)
+    for _, case in pairs(cases or {}) do
+        case.officers = SafeJson(case.officers)
+        case.suspects = SafeJson(case.suspects)
+        case.violations = SafeJson(case.violations)
     end
     return cases or {}
 end
 
-local function BuildWantedFromCases(cases, manualWanted)
-    local wanted = {}
+local function IsCaseOpen(status)
+    return status == 'غير منفذة' or status == 'not_executed' or status == 'open'
+end
+
+local function BuildCaseRequiredList(cases)
+    local list = {}
     local seen = {}
 
-    for _, w in pairs(manualWanted or {}) do
-        local key = w.citizenid or w.name or ('manual_' .. tostring(w.id))
-        seen[key] = true
-        table.insert(wanted, {
-            id = w.id,
-            citizenid = w.citizenid,
-            name = w.name,
-            reason = w.reason,
-            danger = w.danger or 'medium',
-            created_by = w.created_by,
-            created_at = w.created_at,
-            source = 'manual'
-        })
-    end
-
     for _, case in pairs(cases or {}) do
-        if case.status == 'غير منفذة' or case.status == 'not_executed' or case.status == 'open' then
+        if IsCaseOpen(case.status) then
             local suspects = SafeJson(case.suspects)
             for _, suspect in pairs(suspects) do
                 local key = suspect.citizenid or suspect.name
                 if key and not seen[key] then
                     seen[key] = true
-                    table.insert(wanted, {
+                    list[#list + 1] = {
                         id = 'case_' .. tostring(case.id) .. '_' .. tostring(key),
                         case_id = case.id,
                         citizenid = suspect.citizenid,
@@ -121,19 +92,20 @@ local function BuildWantedFromCases(cases, manualWanted)
                         created_at = case.created_at,
                         source = 'case',
                         case_status = case.status
-                    })
+                    }
                 end
             end
         end
     end
 
-    return wanted
+    return list
 end
 
 local function AddLog(src, action, description)
     if not TableExists('aj_mdt_logs') then return end
     local Player = QBCore.Functions.GetPlayer(src)
     if not Player then return end
+
     MySQL.insert('INSERT INTO aj_mdt_logs (citizenid, officer_name, action, description) VALUES (?, ?, ?, ?)', {
         Player.PlayerData.citizenid,
         OfficerName(src),
@@ -152,7 +124,7 @@ QBCore.Functions.CreateCallback('aj_mdt:getAllData', function(source, cb)
         local charinfo = SafeJson(v.charinfo)
         local money = SafeJson(v.money)
         local job = SafeJson(v.job)
-        table.insert(citizens, {
+        citizens[#citizens + 1] = {
             citizenid = v.citizenid,
             name = ((charinfo.firstname or '') .. ' ' .. (charinfo.lastname or '')),
             phone = charinfo.phone or 'N/A',
@@ -161,14 +133,13 @@ QBCore.Functions.CreateCallback('aj_mdt:getAllData', function(source, cb)
             bank = money.bank or 0,
             cash = money.cash or 0,
             job = job.label or job.name or 'Unemployed'
-        })
+        }
     end
 
     local cases = NormalizeCases(MySQL.query.await('SELECT * FROM aj_mdt_cases ORDER BY id DESC', {}) or {})
-    local manualWanted = MySQL.query.await('SELECT * FROM aj_mdt_wanted ORDER BY id DESC', {}) or {}
-    local wanted = BuildWantedFromCases(cases, manualWanted)
     local laws = MySQL.query.await('SELECT * FROM aj_mdt_laws ORDER BY id ASC', {}) or {}
     local logs = {}
+
     if HasPermission(source, 'view_logs') and TableExists('aj_mdt_logs') then
         logs = MySQL.query.await('SELECT * FROM aj_mdt_logs ORDER BY id DESC LIMIT 50', {}) or {}
     end
@@ -184,7 +155,7 @@ QBCore.Functions.CreateCallback('aj_mdt:getAllData', function(source, cb)
     local vehicles = {}
     for _, v in pairs(vehiclesRaw) do
         local charinfo = SafeJson(v.charinfo)
-        table.insert(vehicles, {
+        vehicles[#vehicles + 1] = {
             id = v.id,
             citizenid = v.citizenid,
             plate = v.plate,
@@ -195,10 +166,18 @@ QBCore.Functions.CreateCallback('aj_mdt:getAllData', function(source, cb)
             violation = v.violation or 'لا يوجد',
             is_flagged = v.violation ~= nil,
             flag_created_at = v.flag_created_at
-        })
+        }
     end
 
-    cb({ citizens = citizens, cases = cases, wanted = wanted, vehicles = vehicles, laws = laws, logs = logs, permissions = GetPermissions(source) })
+    cb({
+        citizens = citizens,
+        cases = cases,
+        wanted = BuildCaseRequiredList(cases),
+        vehicles = vehicles,
+        laws = laws,
+        logs = logs,
+        permissions = BuildPermissions(source)
+    })
 end)
 
 QBCore.Functions.CreateCallback('aj_mdt:getCitizenProfile', function(source, cb, citizenid)
@@ -216,8 +195,6 @@ QBCore.Functions.CreateCallback('aj_mdt:getCitizenProfile', function(source, cb,
 
     local vehicles = MySQL.query.await('SELECT id, vehicle, plate, garage, state FROM player_vehicles WHERE citizenid = ? ORDER BY id DESC', { citizenid }) or {}
     local cases = NormalizeCases(MySQL.query.await('SELECT * FROM aj_mdt_cases WHERE citizenid = ? OR citizen_name LIKE ? OR suspects LIKE ? ORDER BY id DESC', { citizenid, '%' .. fullName .. '%', '%' .. citizenid .. '%' }) or {})
-    local manualWanted = MySQL.query.await('SELECT * FROM aj_mdt_wanted WHERE citizenid = ? OR name LIKE ? ORDER BY id DESC', { citizenid, '%' .. fullName .. '%' }) or {}
-    local wanted = BuildWantedFromCases(cases, manualWanted)
 
     local properties = {}
     if TableExists('player_houses') then
@@ -246,8 +223,8 @@ QBCore.Functions.CreateCallback('aj_mdt:getCitizenProfile', function(source, cb,
         vehicles = vehicles,
         properties = properties,
         cases = cases,
-        wanted = wanted,
-        permissions = GetPermissions(source)
+        wanted = BuildCaseRequiredList(cases),
+        permissions = BuildPermissions(source)
     })
 end)
 
@@ -262,15 +239,15 @@ QBCore.Functions.CreateCallback('aj_mdt:smartSearchPeople', function(source, cb,
 
     local data = {}
     for _, v in pairs(result) do
-        local c = SafeJson(v.charinfo)
+        local charinfo = SafeJson(v.charinfo)
         local job = SafeJson(v.job)
         if (not onlyPolice) or (job and Config.PoliceJobs[job.name]) then
-            table.insert(data, {
+            data[#data + 1] = {
                 citizenid = v.citizenid,
-                name = (c.firstname or '') .. ' ' .. (c.lastname or ''),
-                phone = c.phone or 'N/A',
+                name = (charinfo.firstname or '') .. ' ' .. (charinfo.lastname or ''),
+                phone = charinfo.phone or 'N/A',
                 job = job.label or job.name or 'Unemployed'
-            })
+            }
         end
     end
 
@@ -315,32 +292,34 @@ RegisterNetEvent('aj_mdt:addCase', function(data)
     AddLog(src, 'create_case', 'Created case: ' .. tostring(data.title or 'Untitled Case'))
 end)
 
+RegisterNetEvent('aj_mdt:executeCase', function(caseId)
+    local src = source
+    if not HasPermission(src, 'execute_case') then return end
+
+    MySQL.update('UPDATE aj_mdt_cases SET status = ? WHERE id = ?', { 'منفذة', caseId })
+    AddLog(src, 'execute_case', 'Executed case #' .. tostring(caseId))
+end)
+
 RegisterNetEvent('aj_mdt:deleteCase', function(caseId)
     local src = source
     if not HasPermission(src, 'delete_case') then return end
+
     MySQL.query('DELETE FROM aj_mdt_cases WHERE id = ?', { caseId })
     AddLog(src, 'delete_case', 'Deleted case #' .. tostring(caseId))
 end)
 
-RegisterNetEvent('aj_mdt:addWanted', function(data)
-    local src = source
-    if not HasPermission(src, 'create_wanted') then return end
-    MySQL.insert('INSERT INTO aj_mdt_wanted (citizenid, name, reason, danger, created_by) VALUES (?, ?, ?, ?, ?)', {
-        data.citizenid or nil, data.name or 'Unknown', data.reason or '-', data.danger or 'medium', OfficerName(src)
-    })
-    AddLog(src, 'create_wanted', 'Created wanted record for: ' .. tostring(data.name or 'Unknown'))
+RegisterNetEvent('aj_mdt:addWanted', function(_)
+    return
 end)
 
-RegisterNetEvent('aj_mdt:deleteWanted', function(wantedId)
-    local src = source
-    if not HasPermission(src, 'delete_wanted') then return end
-    MySQL.query('DELETE FROM aj_mdt_wanted WHERE id = ?', { wantedId })
-    AddLog(src, 'delete_wanted', 'Deleted wanted record #' .. tostring(wantedId))
+RegisterNetEvent('aj_mdt:deleteWanted', function(_)
+    return
 end)
 
 RegisterNetEvent('aj_mdt:addVehicle', function(data)
     local src = source
     if not HasPermission(src, 'flag_vehicle') then return end
+
     MySQL.insert('INSERT INTO aj_mdt_vehicle_flags (plate, owner_citizenid, owner_name, violation, created_by) VALUES (?, ?, ?, ?, ?)', {
         data.plate or '-', data.citizenid or nil, data.owner or nil, data.violation or '-', OfficerName(src)
     })

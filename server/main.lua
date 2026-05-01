@@ -1,9 +1,58 @@
 local QBCore = exports['qb-core']:GetCoreObject()
 
-local function IsPolice(src)
+local function GetJobConfig(src)
     local Player = QBCore.Functions.GetPlayer(src)
-    if not Player or not Player.PlayerData or not Player.PlayerData.job then return false end
-    return Config.PoliceJobs[Player.PlayerData.job.name] == true
+    if not Player or not Player.PlayerData or not Player.PlayerData.job then return nil, nil, nil end
+
+    local job = Player.PlayerData.job
+    local jobCfg = Config.AuthorizedJobs and Config.AuthorizedJobs[job.name]
+    if not jobCfg then return nil, Player, job end
+
+    return jobCfg, Player, job
+end
+
+local function HasPermission(src, permission)
+    local jobCfg, _, job = GetJobConfig(src)
+    if not jobCfg or not jobCfg.permissions then return false end
+
+    local permissions = {}
+    for key, value in pairs(jobCfg.permissions or {}) do
+        permissions[key] = value
+    end
+
+    local gradeLevel = job and job.grade and (job.grade.level or job.grade.grade or job.grade) or 0
+    gradeLevel = tonumber(gradeLevel) or 0
+
+    local gradeCfg = jobCfg.grades and jobCfg.grades[gradeLevel]
+    if gradeCfg and gradeCfg.permissions then
+        for key, value in pairs(gradeCfg.permissions) do
+            permissions[key] = value
+        end
+    end
+
+    return permissions[permission] == true
+end
+
+local function GetPermissions(src)
+    local jobCfg, _, job = GetJobConfig(src)
+    local permissions = {}
+    if not jobCfg then return permissions end
+
+    for key, value in pairs(jobCfg.permissions or {}) do
+        permissions[key] = value
+    end
+
+    local gradeLevel = job and job.grade and (job.grade.level or job.grade.grade or job.grade) or 0
+    gradeLevel = tonumber(gradeLevel) or 0
+
+    local gradeCfg = jobCfg.grades and jobCfg.grades[gradeLevel]
+    if gradeCfg and gradeCfg.permissions then
+        for key, value in pairs(gradeCfg.permissions) do
+            permissions[key] = value
+        end
+    end
+
+    return permissions
 end
 
 local function OfficerName(src)
@@ -81,8 +130,20 @@ local function BuildWantedFromCases(cases, manualWanted)
     return wanted
 end
 
+local function AddLog(src, action, description)
+    if not TableExists('aj_mdt_logs') then return end
+    local Player = QBCore.Functions.GetPlayer(src)
+    if not Player then return end
+    MySQL.insert('INSERT INTO aj_mdt_logs (citizenid, officer_name, action, description) VALUES (?, ?, ?, ?)', {
+        Player.PlayerData.citizenid,
+        OfficerName(src),
+        action,
+        description
+    })
+end
+
 QBCore.Functions.CreateCallback('aj_mdt:getAllData', function(source, cb)
-    if not IsPolice(source) then cb({ error = 'not_allowed' }) return end
+    if not HasPermission(source, 'access') then cb({ error = 'not_allowed' }) return end
 
     local citizensRaw = MySQL.query.await('SELECT citizenid, charinfo, money, job FROM players ORDER BY id DESC', {}) or {}
     local citizens = {}
@@ -107,6 +168,10 @@ QBCore.Functions.CreateCallback('aj_mdt:getAllData', function(source, cb)
     local manualWanted = MySQL.query.await('SELECT * FROM aj_mdt_wanted ORDER BY id DESC', {}) or {}
     local wanted = BuildWantedFromCases(cases, manualWanted)
     local laws = MySQL.query.await('SELECT * FROM aj_mdt_laws ORDER BY id ASC', {}) or {}
+    local logs = {}
+    if HasPermission(source, 'view_logs') and TableExists('aj_mdt_logs') then
+        logs = MySQL.query.await('SELECT * FROM aj_mdt_logs ORDER BY id DESC LIMIT 50', {}) or {}
+    end
 
     local vehiclesRaw = MySQL.query.await([[
         SELECT pv.id, pv.citizenid, pv.vehicle, pv.plate, pv.garage, pv.state, p.charinfo, vf.violation, vf.created_at AS flag_created_at
@@ -133,11 +198,11 @@ QBCore.Functions.CreateCallback('aj_mdt:getAllData', function(source, cb)
         })
     end
 
-    cb({ citizens = citizens, cases = cases, wanted = wanted, vehicles = vehicles, laws = laws })
+    cb({ citizens = citizens, cases = cases, wanted = wanted, vehicles = vehicles, laws = laws, logs = logs, permissions = GetPermissions(source) })
 end)
 
 QBCore.Functions.CreateCallback('aj_mdt:getCitizenProfile', function(source, cb, citizenid)
-    if not IsPolice(source) then cb({ error = 'not_allowed' }) return end
+    if not HasPermission(source, 'access') then cb({ error = 'not_allowed' }) return end
     if not citizenid then cb({ error = 'missing_citizenid' }) return end
 
     local player = MySQL.single.await('SELECT citizenid, charinfo, money, job, metadata FROM players WHERE citizenid = ? LIMIT 1', { citizenid })
@@ -181,12 +246,13 @@ QBCore.Functions.CreateCallback('aj_mdt:getCitizenProfile', function(source, cb,
         vehicles = vehicles,
         properties = properties,
         cases = cases,
-        wanted = wanted
+        wanted = wanted,
+        permissions = GetPermissions(source)
     })
 end)
 
 QBCore.Functions.CreateCallback('aj_mdt:smartSearchPeople', function(source, cb, query, onlyPolice)
-    if not IsPolice(source) then cb({}) return end
+    if not HasPermission(source, 'access') then cb({}) return end
     query = tostring(query or '')
     if #query < 1 then cb({}) return end
 
@@ -212,14 +278,14 @@ QBCore.Functions.CreateCallback('aj_mdt:smartSearchPeople', function(source, cb,
 end)
 
 QBCore.Functions.CreateCallback('aj_mdt:getLawsByType', function(source, cb, caseType)
-    if not IsPolice(source) then cb({}) return end
+    if not HasPermission(source, 'access') then cb({}) return end
     local result = MySQL.query.await('SELECT * FROM aj_mdt_laws WHERE type = ? OR ? = "all" ORDER BY id ASC', { caseType or 'مخالفة', caseType or 'all' }) or {}
     cb(result)
 end)
 
 RegisterNetEvent('aj_mdt:addCase', function(data)
     local src = source
-    if not IsPolice(src) then return end
+    if not HasPermission(src, 'create_case') then return end
     local Player = QBCore.Functions.GetPlayer(src)
     if not Player then return end
 
@@ -246,20 +312,37 @@ RegisterNetEvent('aj_mdt:addCase', function(data)
         data.action or nil,
         data.extra or nil
     })
+    AddLog(src, 'create_case', 'Created case: ' .. tostring(data.title or 'Untitled Case'))
+end)
+
+RegisterNetEvent('aj_mdt:deleteCase', function(caseId)
+    local src = source
+    if not HasPermission(src, 'delete_case') then return end
+    MySQL.query('DELETE FROM aj_mdt_cases WHERE id = ?', { caseId })
+    AddLog(src, 'delete_case', 'Deleted case #' .. tostring(caseId))
 end)
 
 RegisterNetEvent('aj_mdt:addWanted', function(data)
     local src = source
-    if not IsPolice(src) then return end
+    if not HasPermission(src, 'create_wanted') then return end
     MySQL.insert('INSERT INTO aj_mdt_wanted (citizenid, name, reason, danger, created_by) VALUES (?, ?, ?, ?, ?)', {
         data.citizenid or nil, data.name or 'Unknown', data.reason or '-', data.danger or 'medium', OfficerName(src)
     })
+    AddLog(src, 'create_wanted', 'Created wanted record for: ' .. tostring(data.name or 'Unknown'))
+end)
+
+RegisterNetEvent('aj_mdt:deleteWanted', function(wantedId)
+    local src = source
+    if not HasPermission(src, 'delete_wanted') then return end
+    MySQL.query('DELETE FROM aj_mdt_wanted WHERE id = ?', { wantedId })
+    AddLog(src, 'delete_wanted', 'Deleted wanted record #' .. tostring(wantedId))
 end)
 
 RegisterNetEvent('aj_mdt:addVehicle', function(data)
     local src = source
-    if not IsPolice(src) then return end
+    if not HasPermission(src, 'flag_vehicle') then return end
     MySQL.insert('INSERT INTO aj_mdt_vehicle_flags (plate, owner_citizenid, owner_name, violation, created_by) VALUES (?, ?, ?, ?, ?)', {
         data.plate or '-', data.citizenid or nil, data.owner or nil, data.violation or '-', OfficerName(src)
     })
+    AddLog(src, 'flag_vehicle', 'Flagged vehicle: ' .. tostring(data.plate or '-'))
 end)

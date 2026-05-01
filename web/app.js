@@ -176,7 +176,7 @@ function profileInfo(c){ return `<div class="profile-grid"><div class="card"><sm
 function profileVehicles(list){ return (list || []).map(v => `<div class="row"><span><b>${esc(v.plate)}</b><small>${esc(v.vehicle)} • ${esc(v.garage || 'N/A')}</small></span><em>${esc(v.state)}</em></div>`).join('') || '<div class="empty">لا يوجد مركبات</div>' }
 function profileProperties(list){ return (list || []).map(p => `<div class="row"><span><b>🏠 ${esc(p.house || p.name || p.apartment_type || p.apartment || 'Property')}</b><small>${esc(p.identifier || p.citizenid || '')}</small></span></div>`).join('') || '<div class="empty">لا يوجد أملاك</div>' }
 function vehicleDetails(plate){ const v = state.vehicles.find(x => x.plate === plate); if(v) toast(`${v.plate} - ${v.violation}`) }
-function forceCloseMdt(){ hideSuggestions(); document.querySelectorAll('.modal').forEach(m => m.classList.add('hidden')); document.getElementById('content').innerHTML = ''; document.getElementById('app').classList.add('hidden') }
-function closeMdt(){ nui('close'); forceCloseMdt() }
+function forceCloseMdt(){ document.getElementById('app').classList.add('hidden') }
+function closeMdt(){ forceCloseMdt(); nui('close') }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMdt() })
 renderMenu()

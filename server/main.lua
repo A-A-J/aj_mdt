@@ -1,19 +1,160 @@
--- ADD SMART SEARCH + CASE SAVE
+local QBCore = exports['qb-core']:GetCoreObject()
+
+local function IsPolice(src)
+    local Player = QBCore.Functions.GetPlayer(src)
+    if not Player or not Player.PlayerData or not Player.PlayerData.job then return false end
+    return Config.PoliceJobs[Player.PlayerData.job.name] == true
+end
+
+local function OfficerName(src)
+    local Player = QBCore.Functions.GetPlayer(src)
+    if not Player then return 'Unknown Officer' end
+    local c = Player.PlayerData.charinfo or {}
+    return (c.firstname or '') .. ' ' .. (c.lastname or '')
+end
+
+local function SafeJson(value)
+    if not value then return {} end
+    local ok, decoded = pcall(json.decode, value)
+    if ok and decoded then return decoded end
+    return {}
+end
+
+local function TableExists(name)
+    local result = MySQL.scalar.await('SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?', { name })
+    return tonumber(result or 0) > 0
+end
+
+local function NormalizeCases(cases)
+    for _, c in pairs(cases or {}) do
+        c.officers = SafeJson(c.officers)
+        c.suspects = SafeJson(c.suspects)
+        c.violations = SafeJson(c.violations)
+    end
+    return cases or {}
+end
+
+QBCore.Functions.CreateCallback('aj_mdt:getAllData', function(source, cb)
+    if not IsPolice(source) then cb({ error = 'not_allowed' }) return end
+
+    local citizensRaw = MySQL.query.await('SELECT citizenid, charinfo, money, job FROM players ORDER BY id DESC', {}) or {}
+    local citizens = {}
+
+    for _, v in pairs(citizensRaw) do
+        local charinfo = SafeJson(v.charinfo)
+        local money = SafeJson(v.money)
+        local job = SafeJson(v.job)
+        table.insert(citizens, {
+            citizenid = v.citizenid,
+            name = ((charinfo.firstname or '') .. ' ' .. (charinfo.lastname or '')),
+            phone = charinfo.phone or 'N/A',
+            birthdate = charinfo.birthdate or 'N/A',
+            nationality = charinfo.nationality or 'N/A',
+            bank = money.bank or 0,
+            cash = money.cash or 0,
+            job = job.label or job.name or 'Unemployed'
+        })
+    end
+
+    local cases = NormalizeCases(MySQL.query.await('SELECT * FROM aj_mdt_cases ORDER BY id DESC', {}) or {})
+    local wanted = MySQL.query.await('SELECT * FROM aj_mdt_wanted ORDER BY id DESC', {}) or {}
+    local laws = MySQL.query.await('SELECT * FROM aj_mdt_laws ORDER BY id ASC', {}) or {}
+
+    local vehiclesRaw = MySQL.query.await([[
+        SELECT pv.id, pv.citizenid, pv.vehicle, pv.plate, pv.garage, pv.state, p.charinfo, vf.violation, vf.created_at AS flag_created_at
+        FROM player_vehicles pv
+        LEFT JOIN players p ON p.citizenid = pv.citizenid
+        LEFT JOIN aj_mdt_vehicle_flags vf ON vf.plate = pv.plate
+        ORDER BY pv.id DESC
+    ]], {}) or {}
+
+    local vehicles = {}
+    for _, v in pairs(vehiclesRaw) do
+        local charinfo = SafeJson(v.charinfo)
+        table.insert(vehicles, {
+            id = v.id,
+            citizenid = v.citizenid,
+            plate = v.plate,
+            vehicle = v.vehicle,
+            garage = v.garage,
+            state = v.state,
+            owner_name = ((charinfo.firstname or '') .. ' ' .. (charinfo.lastname or '')),
+            violation = v.violation or 'لا يوجد',
+            is_flagged = v.violation ~= nil,
+            flag_created_at = v.flag_created_at
+        })
+    end
+
+    cb({ citizens = citizens, cases = cases, wanted = wanted, vehicles = vehicles, laws = laws })
+end)
+
+QBCore.Functions.CreateCallback('aj_mdt:getCitizenProfile', function(source, cb, citizenid)
+    if not IsPolice(source) then cb({ error = 'not_allowed' }) return end
+    if not citizenid then cb({ error = 'missing_citizenid' }) return end
+
+    local player = MySQL.single.await('SELECT citizenid, charinfo, money, job, metadata FROM players WHERE citizenid = ? LIMIT 1', { citizenid })
+    if not player then cb({ error = 'not_found' }) return end
+
+    local charinfo = SafeJson(player.charinfo)
+    local money = SafeJson(player.money)
+    local job = SafeJson(player.job)
+    local metadata = SafeJson(player.metadata)
+    local fullName = ((charinfo.firstname or '') .. ' ' .. (charinfo.lastname or ''))
+
+    local vehicles = MySQL.query.await('SELECT id, vehicle, plate, garage, state FROM player_vehicles WHERE citizenid = ? ORDER BY id DESC', { citizenid }) or {}
+    local cases = NormalizeCases(MySQL.query.await('SELECT * FROM aj_mdt_cases WHERE citizenid = ? OR citizen_name LIKE ? OR suspects LIKE ? ORDER BY id DESC', { citizenid, '%' .. fullName .. '%', '%' .. citizenid .. '%' }) or {})
+    local wanted = MySQL.query.await('SELECT * FROM aj_mdt_wanted WHERE citizenid = ? OR name LIKE ? ORDER BY id DESC', { citizenid, '%' .. fullName .. '%' }) or {}
+
+    local properties = {}
+    if TableExists('player_houses') then
+        properties = MySQL.query.await('SELECT * FROM player_houses WHERE citizenid = ? OR identifier = ?', { citizenid, citizenid }) or {}
+    elseif TableExists('apartments') then
+        properties = MySQL.query.await('SELECT * FROM apartments WHERE citizenid = ?', { citizenid }) or {}
+    end
+
+    cb({
+        citizen = {
+            citizenid = citizenid,
+            name = fullName,
+            firstname = charinfo.firstname or '',
+            lastname = charinfo.lastname or '',
+            phone = charinfo.phone or 'N/A',
+            birthdate = charinfo.birthdate or 'N/A',
+            gender = charinfo.gender or 'N/A',
+            nationality = charinfo.nationality or 'N/A',
+            bank = money.bank or 0,
+            cash = money.cash or 0,
+            crypto = money.crypto or 0,
+            job = job.label or job.name or 'Unemployed',
+            grade = job.grade and (job.grade.name or job.grade.level) or 'N/A',
+            metadata = metadata
+        },
+        vehicles = vehicles,
+        properties = properties,
+        cases = cases,
+        wanted = wanted
+    })
+end)
 
 QBCore.Functions.CreateCallback('aj_mdt:smartSearchPeople', function(source, cb, query, onlyPolice)
-    local result = MySQL.query.await('SELECT citizenid, charinfo, job FROM players WHERE citizenid LIKE ? OR charinfo LIKE ? LIMIT 10', {
-        '%'..query..'%', '%'..query..'%'
-    })
+    if not IsPolice(source) then cb({}) return end
+    query = tostring(query or '')
+    if #query < 1 then cb({}) return end
+
+    local result = MySQL.query.await('SELECT citizenid, charinfo, job FROM players WHERE citizenid LIKE ? OR charinfo LIKE ? LIMIT 12', {
+        '%' .. query .. '%', '%' .. query .. '%'
+    }) or {}
 
     local data = {}
     for _, v in pairs(result) do
-        local c = json.decode(v.charinfo)
-        local job = json.decode(v.job)
-
+        local c = SafeJson(v.charinfo)
+        local job = SafeJson(v.job)
         if (not onlyPolice) or (job and Config.PoliceJobs[job.name]) then
             table.insert(data, {
                 citizenid = v.citizenid,
-                name = c.firstname .. ' ' .. c.lastname
+                name = (c.firstname or '') .. ' ' .. (c.lastname or ''),
+                phone = c.phone or 'N/A',
+                job = job.label or job.name or 'Unemployed'
             })
         end
     end
@@ -22,24 +163,54 @@ QBCore.Functions.CreateCallback('aj_mdt:smartSearchPeople', function(source, cb,
 end)
 
 QBCore.Functions.CreateCallback('aj_mdt:getLawsByType', function(source, cb, caseType)
-    local result = MySQL.query.await('SELECT * FROM aj_mdt_laws WHERE type = ?', { caseType })
+    if not IsPolice(source) then cb({}) return end
+    local result = MySQL.query.await('SELECT * FROM aj_mdt_laws WHERE type = ? OR ? = "all" ORDER BY id ASC', { caseType or 'مخالفة', caseType or 'all' }) or {}
     cb(result)
 end)
 
 RegisterNetEvent('aj_mdt:addCase', function(data)
     local src = source
+    if not IsPolice(src) then return end
     local Player = QBCore.Functions.GetPlayer(src)
+    if not Player then return end
 
-    MySQL.insert('INSERT INTO aj_mdt_cases (title, content, case_type, status, officers, suspects, violations, action_taken, extra_details, officer_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', {
-        data.title,
-        data.content,
-        data.caseType,
-        data.status,
-        json.encode(data.officers),
-        json.encode(data.suspects),
-        json.encode(data.violations),
-        data.action,
-        data.extra,
-        Player.PlayerData.charinfo.firstname .. ' ' .. Player.PlayerData.charinfo.lastname
+    local suspects = data.suspects or {}
+    local mainSuspect = suspects[1] or {}
+
+    MySQL.insert([[
+        INSERT INTO aj_mdt_cases
+        (title, citizenid, citizen_name, officer_citizenid, officer_name, status, case_type, content, description, officers, suspects, violations, action_taken, extra_details)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ]], {
+        data.title or 'Untitled Case',
+        mainSuspect.citizenid or data.citizenid or nil,
+        mainSuspect.name or data.citizen or nil,
+        Player.PlayerData.citizenid,
+        OfficerName(src),
+        data.status or 'غير منفذة',
+        data.caseType or 'قضية',
+        data.content or '',
+        data.extra or data.description or '',
+        json.encode(data.officers or {}),
+        json.encode(data.suspects or {}),
+        json.encode(data.violations or {}),
+        data.action or nil,
+        data.extra or nil
+    })
+end)
+
+RegisterNetEvent('aj_mdt:addWanted', function(data)
+    local src = source
+    if not IsPolice(src) then return end
+    MySQL.insert('INSERT INTO aj_mdt_wanted (citizenid, name, reason, danger, created_by) VALUES (?, ?, ?, ?, ?)', {
+        data.citizenid or nil, data.name or 'Unknown', data.reason or '-', data.danger or 'medium', OfficerName(src)
+    })
+end)
+
+RegisterNetEvent('aj_mdt:addVehicle', function(data)
+    local src = source
+    if not IsPolice(src) then return end
+    MySQL.insert('INSERT INTO aj_mdt_vehicle_flags (plate, owner_citizenid, owner_name, violation, created_by) VALUES (?, ?, ?, ?, ?)', {
+        data.plate or '-', data.citizenid or nil, data.owner or nil, data.violation or '-', OfficerName(src)
     })
 end)

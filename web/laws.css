@@ -1,0 +1,9 @@
+.laws-page { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.law-panel-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+.law-actions { display:flex; gap:6px; justify-content:center; }
+.icon-btn { width:32px; height:32px; display:inline-flex; align-items:center; justify-content:center; border-radius:6px; border:1px solid var(--line); background:var(--panel-soft); cursor:pointer; }
+.icon-btn:hover { background:var(--accent-soft); }
+.law-modal-box { width:420px; }
+.law-field-block { display:flex; flex-direction:column; gap:6px; }
+.law-info-body { display:flex; flex-direction:column; gap:8px; }
+.law-info-row { display:flex; justify-content:space-between; border-bottom:1px solid var(--line); padding:6px 0; }

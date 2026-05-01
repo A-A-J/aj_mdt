@@ -15,6 +15,7 @@ end
 
 local function SafeJson(value)
     if not value then return {} end
+    if type(value) == 'table' then return value end
     local ok, decoded = pcall(json.decode, value)
     if ok and decoded then return decoded end
     return {}
@@ -32,6 +33,52 @@ local function NormalizeCases(cases)
         c.violations = SafeJson(c.violations)
     end
     return cases or {}
+end
+
+local function BuildWantedFromCases(cases, manualWanted)
+    local wanted = {}
+    local seen = {}
+
+    for _, w in pairs(manualWanted or {}) do
+        local key = w.citizenid or w.name or ('manual_' .. tostring(w.id))
+        seen[key] = true
+        table.insert(wanted, {
+            id = w.id,
+            citizenid = w.citizenid,
+            name = w.name,
+            reason = w.reason,
+            danger = w.danger or 'medium',
+            created_by = w.created_by,
+            created_at = w.created_at,
+            source = 'manual'
+        })
+    end
+
+    for _, case in pairs(cases or {}) do
+        if case.status == 'غير منفذة' or case.status == 'not_executed' or case.status == 'open' then
+            local suspects = SafeJson(case.suspects)
+            for _, suspect in pairs(suspects) do
+                local key = suspect.citizenid or suspect.name
+                if key and not seen[key] then
+                    seen[key] = true
+                    table.insert(wanted, {
+                        id = 'case_' .. tostring(case.id) .. '_' .. tostring(key),
+                        case_id = case.id,
+                        citizenid = suspect.citizenid,
+                        name = suspect.name or suspect.citizenid or 'Unknown',
+                        reason = case.title or 'قضية غير منفذة',
+                        danger = 'case',
+                        created_by = case.officer_name,
+                        created_at = case.created_at,
+                        source = 'case',
+                        case_status = case.status
+                    })
+                end
+            end
+        end
+    end
+
+    return wanted
 end
 
 QBCore.Functions.CreateCallback('aj_mdt:getAllData', function(source, cb)
@@ -57,7 +104,8 @@ QBCore.Functions.CreateCallback('aj_mdt:getAllData', function(source, cb)
     end
 
     local cases = NormalizeCases(MySQL.query.await('SELECT * FROM aj_mdt_cases ORDER BY id DESC', {}) or {})
-    local wanted = MySQL.query.await('SELECT * FROM aj_mdt_wanted ORDER BY id DESC', {}) or {}
+    local manualWanted = MySQL.query.await('SELECT * FROM aj_mdt_wanted ORDER BY id DESC', {}) or {}
+    local wanted = BuildWantedFromCases(cases, manualWanted)
     local laws = MySQL.query.await('SELECT * FROM aj_mdt_laws ORDER BY id ASC', {}) or {}
 
     local vehiclesRaw = MySQL.query.await([[
@@ -103,7 +151,8 @@ QBCore.Functions.CreateCallback('aj_mdt:getCitizenProfile', function(source, cb,
 
     local vehicles = MySQL.query.await('SELECT id, vehicle, plate, garage, state FROM player_vehicles WHERE citizenid = ? ORDER BY id DESC', { citizenid }) or {}
     local cases = NormalizeCases(MySQL.query.await('SELECT * FROM aj_mdt_cases WHERE citizenid = ? OR citizen_name LIKE ? OR suspects LIKE ? ORDER BY id DESC', { citizenid, '%' .. fullName .. '%', '%' .. citizenid .. '%' }) or {})
-    local wanted = MySQL.query.await('SELECT * FROM aj_mdt_wanted WHERE citizenid = ? OR name LIKE ? ORDER BY id DESC', { citizenid, '%' .. fullName .. '%' }) or {}
+    local manualWanted = MySQL.query.await('SELECT * FROM aj_mdt_wanted WHERE citizenid = ? OR name LIKE ? ORDER BY id DESC', { citizenid, '%' .. fullName .. '%' }) or {}
+    local wanted = BuildWantedFromCases(cases, manualWanted)
 
     local properties = {}
     if TableExists('player_houses') then

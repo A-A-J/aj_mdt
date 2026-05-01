@@ -145,7 +145,7 @@ QBCore.Functions.CreateCallback('aj_mdt:getAllData', function(source, cb)
     end
 
     local vehiclesRaw = MySQL.query.await([[
-        SELECT pv.id, pv.citizenid, pv.vehicle, pv.plate, pv.garage, pv.state, p.charinfo, vf.violation, vf.created_at AS flag_created_at
+        SELECT pv.id, pv.citizenid, pv.vehicle, pv.plate, pv.garage, pv.state, p.charinfo, vf.id AS flag_id, vf.owner_name AS flag_owner_name, vf.violation, vf.created_at AS flag_created_at
         FROM player_vehicles pv
         LEFT JOIN players p ON p.citizenid = pv.citizenid
         LEFT JOIN aj_mdt_vehicle_flags vf ON vf.plate = pv.plate
@@ -157,12 +157,13 @@ QBCore.Functions.CreateCallback('aj_mdt:getAllData', function(source, cb)
         local charinfo = SafeJson(v.charinfo)
         vehicles[#vehicles + 1] = {
             id = v.id,
+            flag_id = v.flag_id,
             citizenid = v.citizenid,
             plate = v.plate,
             vehicle = v.vehicle,
             garage = v.garage,
             state = v.state,
-            owner_name = ((charinfo.firstname or '') .. ' ' .. (charinfo.lastname or '')),
+            owner_name = v.flag_owner_name or ((charinfo.firstname or '') .. ' ' .. (charinfo.lastname or '')),
             violation = v.violation or 'لا يوجد',
             is_flagged = v.violation ~= nil,
             flag_created_at = v.flag_created_at
@@ -351,8 +352,40 @@ RegisterNetEvent('aj_mdt:addVehicle', function(data)
     local src = source
     if not HasPermission(src, 'flag_vehicle') then return end
 
-    MySQL.insert('INSERT INTO aj_mdt_vehicle_flags (plate, owner_citizenid, owner_name, violation, created_by) VALUES (?, ?, ?, ?, ?)', {
-        data.plate or '-', data.citizenid or nil, data.owner or nil, data.violation or '-', OfficerName(src)
+    local plate = tostring(data.plate or '-')
+    local exists = MySQL.single.await('SELECT id FROM aj_mdt_vehicle_flags WHERE plate = ? LIMIT 1', { plate })
+    if exists then
+        MySQL.update('UPDATE aj_mdt_vehicle_flags SET owner_name = ?, violation = ?, created_by = ? WHERE plate = ?', {
+            data.owner or nil, data.violation or '-', OfficerName(src), plate
+        })
+    else
+        MySQL.insert('INSERT INTO aj_mdt_vehicle_flags (plate, owner_citizenid, owner_name, violation, created_by) VALUES (?, ?, ?, ?, ?)', {
+            plate, data.citizenid or nil, data.owner or nil, data.violation or '-', OfficerName(src)
+        })
+    end
+    AddLog(src, 'flag_vehicle', 'Flagged vehicle: ' .. plate)
+end)
+
+RegisterNetEvent('aj_mdt:updateVehicleFlag', function(data)
+    local src = source
+    if not HasPermission(src, 'flag_vehicle') then return end
+    if not data or not data.plate then return end
+
+    MySQL.update('UPDATE aj_mdt_vehicle_flags SET owner_name = ?, violation = ?, created_by = ? WHERE plate = ?', {
+        data.owner or nil,
+        data.violation or '-',
+        OfficerName(src),
+        data.plate
     })
-    AddLog(src, 'flag_vehicle', 'Flagged vehicle: ' .. tostring(data.plate or '-'))
+
+    AddLog(src, 'edit_vehicle_flag', 'Edited vehicle flag: ' .. tostring(data.plate))
+end)
+
+RegisterNetEvent('aj_mdt:deleteVehicleFlag', function(plate)
+    local src = source
+    if not HasPermission(src, 'flag_vehicle') then return end
+    if not plate then return end
+
+    MySQL.query('DELETE FROM aj_mdt_vehicle_flags WHERE plate = ?', { plate })
+    AddLog(src, 'delete_vehicle_flag', 'Deleted vehicle flag: ' .. tostring(plate))
 end)

@@ -16,18 +16,13 @@ local function BuildPermissions(src)
     local permissions = {}
     if not jobCfg then return permissions end
 
-    for key, value in pairs(jobCfg.permissions or {}) do
-        permissions[key] = value
-    end
+    for key, value in pairs(jobCfg.permissions or {}) do permissions[key] = value end
 
     local gradeLevel = job and job.grade and (job.grade.level or job.grade.grade or job.grade) or 0
     gradeLevel = tonumber(gradeLevel) or 0
-
     local gradeCfg = jobCfg.grades and jobCfg.grades[gradeLevel]
     if gradeCfg and gradeCfg.permissions then
-        for key, value in pairs(gradeCfg.permissions) do
-            permissions[key] = value
-        end
+        for key, value in pairs(gradeCfg.permissions) do permissions[key] = value end
     end
 
     return permissions
@@ -41,7 +36,12 @@ local function OfficerName(src)
     local Player = QBCore.Functions.GetPlayer(src)
     if not Player then return 'Unknown Officer' end
     local c = Player.PlayerData.charinfo or {}
-    return (c.firstname or '') .. ' ' .. (c.lastname or '')
+    return ((c.firstname or '') .. ' ' .. (c.lastname or '')):gsub('^%s+', ''):gsub('%s+$', '')
+end
+
+local function OfficerCitizenId(src)
+    local Player = QBCore.Functions.GetPlayer(src)
+    return Player and Player.PlayerData and Player.PlayerData.citizenid or nil
 end
 
 local function SafeJson(value)
@@ -50,6 +50,11 @@ local function SafeJson(value)
     local ok, decoded = pcall(json.decode, value)
     if ok and decoded then return decoded end
     return {}
+end
+
+local function Json(value)
+    local ok, encoded = pcall(json.encode, value or {})
+    return ok and encoded or '{}'
 end
 
 local function TableExists(name)
@@ -71,9 +76,7 @@ local function IsCaseOpen(status)
 end
 
 local function BuildCaseRequiredList(cases)
-    local list = {}
-    local seen = {}
-
+    local list, seen = {}, {}
     for _, case in pairs(cases or {}) do
         if IsCaseOpen(case.status) then
             local suspects = SafeJson(case.suspects)
@@ -97,51 +100,76 @@ local function BuildCaseRequiredList(cases)
             end
         end
     end
-
     return list
 end
 
-local function AddLog(src, action, description)
-    if not TableExists('aj_mdt_logs') then return end
-    local Player = QBCore.Functions.GetPlayer(src)
-    if not Player then return end
+local function AddLog(src, action, description, targetType, targetId, oldData, newData)
+    local officerCid = OfficerCitizenId(src)
+    local officerName = OfficerName(src)
 
-    MySQL.insert('INSERT INTO aj_mdt_logs (citizenid, officer_name, action, description) VALUES (?, ?, ?, ?)', {
-        Player.PlayerData.citizenid,
-        OfficerName(src),
-        action,
-        description
-    })
+    if TableExists('aj_mdt_audit_logs') then
+        MySQL.insert('INSERT INTO aj_mdt_audit_logs (citizenid, officer_name, action, target_type, target_id, old_data, new_data, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', {
+            officerCid,
+            officerName,
+            action,
+            targetType or nil,
+            targetId and tostring(targetId) or nil,
+            oldData and Json(oldData) or nil,
+            newData and Json(newData) or nil,
+            description
+        })
+    end
+
+    if TableExists('aj_mdt_logs') then
+        MySQL.insert('INSERT INTO aj_mdt_logs (citizenid, officer_name, action, description) VALUES (?, ?, ?, ?)', {
+            officerCid,
+            officerName,
+            action,
+            description
+        })
+    end
+end
+
+local function BuildCitizenRow(v)
+    local charinfo = SafeJson(v.charinfo)
+    local money = SafeJson(v.money)
+    local job = SafeJson(v.job)
+    return {
+        citizenid = v.citizenid,
+        name = ((charinfo.firstname or '') .. ' ' .. (charinfo.lastname or '')),
+        phone = charinfo.phone or 'N/A',
+        birthdate = charinfo.birthdate or 'N/A',
+        nationality = charinfo.nationality or 'N/A',
+        bank = money.bank or 0,
+        cash = money.cash or 0,
+        job = job.label or job.name or 'Unemployed',
+        image_url = v.image_url
+    }
 end
 
 QBCore.Functions.CreateCallback('aj_mdt:getAllData', function(source, cb)
     if not HasPermission(source, 'access') then cb({ error = 'not_allowed' }) return end
 
-    local citizensRaw = MySQL.query.await('SELECT citizenid, charinfo, money, job FROM players ORDER BY id DESC', {}) or {}
-    local citizens = {}
+    local citizensRaw = MySQL.query.await([[
+        SELECT p.citizenid, p.charinfo, p.money, p.job, ci.image_url
+        FROM players p
+        LEFT JOIN aj_mdt_citizen_images ci ON ci.citizenid = p.citizenid
+        ORDER BY p.id DESC
+    ]], {}) or {}
 
-    for _, v in pairs(citizensRaw) do
-        local charinfo = SafeJson(v.charinfo)
-        local money = SafeJson(v.money)
-        local job = SafeJson(v.job)
-        citizens[#citizens + 1] = {
-            citizenid = v.citizenid,
-            name = ((charinfo.firstname or '') .. ' ' .. (charinfo.lastname or '')),
-            phone = charinfo.phone or 'N/A',
-            birthdate = charinfo.birthdate or 'N/A',
-            nationality = charinfo.nationality or 'N/A',
-            bank = money.bank or 0,
-            cash = money.cash or 0,
-            job = job.label or job.name or 'Unemployed'
-        }
-    end
+    local citizens = {}
+    for _, v in pairs(citizensRaw) do citizens[#citizens + 1] = BuildCitizenRow(v) end
 
     local cases = NormalizeCases(MySQL.query.await('SELECT * FROM aj_mdt_cases ORDER BY id DESC', {}) or {})
     local laws = MySQL.query.await('SELECT * FROM aj_mdt_laws ORDER BY id ASC', {}) or {}
     local logs = {}
 
-    if HasPermission(source, 'view_logs') and TableExists('aj_mdt_logs') then
-        logs = MySQL.query.await('SELECT * FROM aj_mdt_logs ORDER BY id DESC LIMIT 50', {}) or {}
+    if HasPermission(source, 'view_logs') then
+        if TableExists('aj_mdt_audit_logs') then
+            logs = MySQL.query.await('SELECT * FROM aj_mdt_audit_logs ORDER BY id DESC LIMIT 100', {}) or {}
+        elseif TableExists('aj_mdt_logs') then
+            logs = MySQL.query.await('SELECT * FROM aj_mdt_logs ORDER BY id DESC LIMIT 50', {}) or {}
+        end
     end
 
     local vehiclesRaw = MySQL.query.await([[
@@ -170,22 +198,20 @@ QBCore.Functions.CreateCallback('aj_mdt:getAllData', function(source, cb)
         }
     end
 
-    cb({
-        citizens = citizens,
-        cases = cases,
-        wanted = BuildCaseRequiredList(cases),
-        vehicles = vehicles,
-        laws = laws,
-        logs = logs,
-        permissions = BuildPermissions(source)
-    })
+    cb({ citizens = citizens, cases = cases, wanted = BuildCaseRequiredList(cases), vehicles = vehicles, laws = laws, logs = logs, permissions = BuildPermissions(source) })
 end)
 
 QBCore.Functions.CreateCallback('aj_mdt:getCitizenProfile', function(source, cb, citizenid)
     if not HasPermission(source, 'access') then cb({ error = 'not_allowed' }) return end
     if not citizenid then cb({ error = 'missing_citizenid' }) return end
 
-    local player = MySQL.single.await('SELECT citizenid, charinfo, money, job, metadata FROM players WHERE citizenid = ? LIMIT 1', { citizenid })
+    local player = MySQL.single.await([[
+        SELECT p.citizenid, p.charinfo, p.money, p.job, p.metadata, ci.image_url
+        FROM players p
+        LEFT JOIN aj_mdt_citizen_images ci ON ci.citizenid = p.citizenid
+        WHERE p.citizenid = ?
+        LIMIT 1
+    ]], { citizenid })
     if not player then cb({ error = 'not_found' }) return end
 
     local charinfo = SafeJson(player.charinfo)
@@ -219,6 +245,7 @@ QBCore.Functions.CreateCallback('aj_mdt:getCitizenProfile', function(source, cb,
             crypto = money.crypto or 0,
             job = job.label or job.name or 'Unemployed',
             grade = job.grade and (job.grade.name or job.grade.level) or 'N/A',
+            image_url = player.image_url,
             metadata = metadata
         },
         vehicles = vehicles,
@@ -234,24 +261,15 @@ QBCore.Functions.CreateCallback('aj_mdt:smartSearchPeople', function(source, cb,
     query = tostring(query or '')
     if #query < 1 then cb({}) return end
 
-    local result = MySQL.query.await('SELECT citizenid, charinfo, job FROM players WHERE citizenid LIKE ? OR charinfo LIKE ? LIMIT 12', {
-        '%' .. query .. '%', '%' .. query .. '%'
-    }) or {}
-
+    local result = MySQL.query.await('SELECT citizenid, charinfo, job FROM players WHERE citizenid LIKE ? OR charinfo LIKE ? LIMIT 12', { '%' .. query .. '%', '%' .. query .. '%' }) or {}
     local data = {}
     for _, v in pairs(result) do
         local charinfo = SafeJson(v.charinfo)
         local job = SafeJson(v.job)
         if (not onlyPolice) or (job and Config.PoliceJobs[job.name]) then
-            data[#data + 1] = {
-                citizenid = v.citizenid,
-                name = (charinfo.firstname or '') .. ' ' .. (charinfo.lastname or ''),
-                phone = charinfo.phone or 'N/A',
-                job = job.label or job.name or 'Unemployed'
-            }
+            data[#data + 1] = { citizenid = v.citizenid, name = (charinfo.firstname or '') .. ' ' .. (charinfo.lastname or ''), phone = charinfo.phone or 'N/A', job = job.label or job.name or 'Unemployed' }
         end
     end
-
     cb(data)
 end)
 
@@ -266,126 +284,119 @@ RegisterNetEvent('aj_mdt:addCase', function(data)
     if not HasPermission(src, 'create_case') then return end
     local Player = QBCore.Functions.GetPlayer(src)
     if not Player then return end
-
     local suspects = data.suspects or {}
     local mainSuspect = suspects[1] or {}
-
-    MySQL.insert([[
-        INSERT INTO aj_mdt_cases
-        (title, citizenid, citizen_name, officer_citizenid, officer_name, status, case_type, content, description, officers, suspects, violations, action_taken, extra_details)
+    local insertData = {
+        title = data.title or 'Untitled Case',
+        citizenid = mainSuspect.citizenid or data.citizenid or nil,
+        citizen_name = mainSuspect.name or data.citizen or nil,
+        officer_citizenid = Player.PlayerData.citizenid,
+        officer_name = OfficerName(src),
+        status = data.status or 'غير منفذة',
+        case_type = data.caseType or 'قضية',
+        content = data.content or '',
+        description = data.extra or data.description or '',
+        officers = data.officers or {},
+        suspects = data.suspects or {},
+        violations = data.violations or {},
+        action_taken = data.action or nil,
+        extra_details = data.extra or nil
+    }
+    local id = MySQL.insert.await([[
+        INSERT INTO aj_mdt_cases (title, citizenid, citizen_name, officer_citizenid, officer_name, status, case_type, content, description, officers, suspects, violations, action_taken, extra_details)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ]], {
-        data.title or 'Untitled Case',
-        mainSuspect.citizenid or data.citizenid or nil,
-        mainSuspect.name or data.citizen or nil,
-        Player.PlayerData.citizenid,
-        OfficerName(src),
-        data.status or 'غير منفذة',
-        data.caseType or 'قضية',
-        data.content or '',
-        data.extra or data.description or '',
-        json.encode(data.officers or {}),
-        json.encode(data.suspects or {}),
-        json.encode(data.violations or {}),
-        data.action or nil,
-        data.extra or nil
-    })
-    AddLog(src, 'create_case', 'Created case: ' .. tostring(data.title or 'Untitled Case'))
+    ]], { insertData.title, insertData.citizenid, insertData.citizen_name, insertData.officer_citizenid, insertData.officer_name, insertData.status, insertData.case_type, insertData.content, insertData.description, Json(insertData.officers), Json(insertData.suspects), Json(insertData.violations), insertData.action_taken, insertData.extra_details })
+    AddLog(src, 'create_case', 'Created case: ' .. tostring(insertData.title), 'case', id, nil, insertData)
 end)
 
 RegisterNetEvent('aj_mdt:updateCase', function(data)
     local src = source
     if not HasPermission(src, 'edit_case') then return end
     if not data or not data.id then return end
-
+    local old = MySQL.single.await('SELECT * FROM aj_mdt_cases WHERE id = ? LIMIT 1', { data.id })
     local suspects = data.suspects or {}
     local mainSuspect = suspects[1] or {}
-
-    MySQL.update([[
-        UPDATE aj_mdt_cases
-        SET title = ?, citizenid = ?, citizen_name = ?, status = ?, case_type = ?, content = ?, description = ?, officers = ?, suspects = ?, violations = ?, action_taken = ?, extra_details = ?
-        WHERE id = ?
-    ]], {
-        data.title or 'Untitled Case',
-        mainSuspect.citizenid or data.citizenid or nil,
-        mainSuspect.name or data.citizen or nil,
-        data.status or 'غير منفذة',
-        data.caseType or 'قضية',
-        data.content or '',
-        data.extra or data.description or '',
-        json.encode(data.officers or {}),
-        json.encode(data.suspects or {}),
-        json.encode(data.violations or {}),
-        data.action or nil,
-        data.extra or nil,
-        data.id
+    local newData = {
+        title = data.title or 'Untitled Case',
+        citizenid = mainSuspect.citizenid or data.citizenid or nil,
+        citizen_name = mainSuspect.name or data.citizen or nil,
+        status = data.status or 'غير منفذة',
+        case_type = data.caseType or 'قضية',
+        content = data.content or '',
+        description = data.extra or data.description or '',
+        officers = data.officers or {},
+        suspects = data.suspects or {},
+        violations = data.violations or {},
+        action_taken = data.action or nil,
+        extra_details = data.extra or nil
+    }
+    MySQL.update([[UPDATE aj_mdt_cases SET title = ?, citizenid = ?, citizen_name = ?, status = ?, case_type = ?, content = ?, description = ?, officers = ?, suspects = ?, violations = ?, action_taken = ?, extra_details = ? WHERE id = ?]], {
+        newData.title, newData.citizenid, newData.citizen_name, newData.status, newData.case_type, newData.content, newData.description, Json(newData.officers), Json(newData.suspects), Json(newData.violations), newData.action_taken, newData.extra_details, data.id
     })
-
-    AddLog(src, 'edit_case', 'Edited case #' .. tostring(data.id))
+    AddLog(src, 'edit_case', 'Edited case #' .. tostring(data.id), 'case', data.id, old, newData)
 end)
 
 RegisterNetEvent('aj_mdt:executeCase', function(caseId)
     local src = source
     if not HasPermission(src, 'execute_case') then return end
-
+    local old = MySQL.single.await('SELECT * FROM aj_mdt_cases WHERE id = ? LIMIT 1', { caseId })
     MySQL.update('UPDATE aj_mdt_cases SET status = ? WHERE id = ?', { 'منفذة', caseId })
-    AddLog(src, 'execute_case', 'Executed case #' .. tostring(caseId))
+    AddLog(src, 'execute_case', 'Executed case #' .. tostring(caseId), 'case', caseId, old, { status = 'منفذة' })
 end)
 
 RegisterNetEvent('aj_mdt:deleteCase', function(caseId)
     local src = source
     if not HasPermission(src, 'delete_case') then return end
-
+    local old = MySQL.single.await('SELECT * FROM aj_mdt_cases WHERE id = ? LIMIT 1', { caseId })
     MySQL.query('DELETE FROM aj_mdt_cases WHERE id = ?', { caseId })
-    AddLog(src, 'delete_case', 'Deleted case #' .. tostring(caseId))
+    AddLog(src, 'delete_case', 'Deleted case #' .. tostring(caseId), 'case', caseId, old, nil)
 end)
 
-RegisterNetEvent('aj_mdt:addWanted', function(_)
-    return
-end)
-
-RegisterNetEvent('aj_mdt:deleteWanted', function(_)
-    return
-end)
+RegisterNetEvent('aj_mdt:addWanted', function(_) return end)
+RegisterNetEvent('aj_mdt:deleteWanted', function(_) return end)
 
 RegisterNetEvent('aj_mdt:addVehicle', function(data)
     local src = source
     if not HasPermission(src, 'flag_vehicle') then return end
-
     local plate = tostring(data.plate or '-')
-    local exists = MySQL.single.await('SELECT id FROM aj_mdt_vehicle_flags WHERE plate = ? LIMIT 1', { plate })
-    if exists then
-        MySQL.update('UPDATE aj_mdt_vehicle_flags SET owner_name = ?, violation = ?, created_by = ? WHERE plate = ?', {
-            data.owner or nil, data.violation or '-', OfficerName(src), plate
-        })
+    local old = MySQL.single.await('SELECT * FROM aj_mdt_vehicle_flags WHERE plate = ? LIMIT 1', { plate })
+    local newData = { plate = plate, owner_name = data.owner or nil, violation = data.violation or '-', created_by = OfficerName(src) }
+    if old then
+        MySQL.update('UPDATE aj_mdt_vehicle_flags SET owner_name = ?, violation = ?, created_by = ? WHERE plate = ?', { newData.owner_name, newData.violation, newData.created_by, plate })
     else
-        MySQL.insert('INSERT INTO aj_mdt_vehicle_flags (plate, owner_citizenid, owner_name, violation, created_by) VALUES (?, ?, ?, ?, ?)', {
-            plate, data.citizenid or nil, data.owner or nil, data.violation or '-', OfficerName(src)
-        })
+        MySQL.insert('INSERT INTO aj_mdt_vehicle_flags (plate, owner_citizenid, owner_name, violation, created_by) VALUES (?, ?, ?, ?, ?)', { plate, data.citizenid or nil, newData.owner_name, newData.violation, newData.created_by })
     end
-    AddLog(src, 'flag_vehicle', 'Flagged vehicle: ' .. plate)
+    AddLog(src, 'flag_vehicle', 'Flagged vehicle: ' .. plate, 'vehicle', plate, old, newData)
 end)
 
 RegisterNetEvent('aj_mdt:updateVehicleFlag', function(data)
     local src = source
     if not HasPermission(src, 'flag_vehicle') then return end
     if not data or not data.plate then return end
-
-    MySQL.update('UPDATE aj_mdt_vehicle_flags SET owner_name = ?, violation = ?, created_by = ? WHERE plate = ?', {
-        data.owner or nil,
-        data.violation or '-',
-        OfficerName(src),
-        data.plate
-    })
-
-    AddLog(src, 'edit_vehicle_flag', 'Edited vehicle flag: ' .. tostring(data.plate))
+    local old = MySQL.single.await('SELECT * FROM aj_mdt_vehicle_flags WHERE plate = ? LIMIT 1', { data.plate })
+    local newData = { owner_name = data.owner or nil, violation = data.violation or '-', created_by = OfficerName(src), plate = data.plate }
+    MySQL.update('UPDATE aj_mdt_vehicle_flags SET owner_name = ?, violation = ?, created_by = ? WHERE plate = ?', { newData.owner_name, newData.violation, newData.created_by, data.plate })
+    AddLog(src, 'edit_vehicle_flag', 'Edited vehicle flag: ' .. tostring(data.plate), 'vehicle', data.plate, old, newData)
 end)
 
 RegisterNetEvent('aj_mdt:deleteVehicleFlag', function(plate)
     local src = source
     if not HasPermission(src, 'flag_vehicle') then return end
     if not plate then return end
-
+    local old = MySQL.single.await('SELECT * FROM aj_mdt_vehicle_flags WHERE plate = ? LIMIT 1', { plate })
     MySQL.query('DELETE FROM aj_mdt_vehicle_flags WHERE plate = ?', { plate })
-    AddLog(src, 'delete_vehicle_flag', 'Deleted vehicle flag: ' .. tostring(plate))
+    AddLog(src, 'delete_vehicle_flag', 'Deleted vehicle flag: ' .. tostring(plate), 'vehicle', plate, old, nil)
+end)
+
+RegisterNetEvent('aj_mdt:saveCitizenImage', function(data)
+    local src = source
+    if not HasPermission(src, 'edit_profile') then return end
+    if not data or not data.citizenid or not data.imageUrl then return end
+    local old = MySQL.single.await('SELECT * FROM aj_mdt_citizen_images WHERE citizenid = ? LIMIT 1', { data.citizenid })
+    MySQL.insert([[INSERT INTO aj_mdt_citizen_images (citizenid, image_url, updated_by) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE image_url = VALUES(image_url), updated_by = VALUES(updated_by)]], {
+        data.citizenid,
+        data.imageUrl,
+        OfficerName(src)
+    })
+    AddLog(src, 'save_citizen_image', 'Saved citizen image: ' .. tostring(data.citizenid), 'citizen', data.citizenid, old, { citizenid = data.citizenid, image_url = data.imageUrl })
 end)

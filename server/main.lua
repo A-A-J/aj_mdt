@@ -20,6 +20,11 @@ local function SafeJson(value)
     return {}
 end
 
+local function TableExists(name)
+    local result = MySQL.scalar.await('SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?', { name })
+    return tonumber(result or 0) > 0
+end
+
 QBCore.Functions.CreateCallback('aj_mdt:getAllData', function(source, cb)
     if not IsPolice(source) then cb({ error = 'not_allowed' }) return end
 
@@ -72,6 +77,53 @@ QBCore.Functions.CreateCallback('aj_mdt:getAllData', function(source, cb)
     end
 
     cb({ citizens = citizens, cases = cases, wanted = wanted, vehicles = vehicles, laws = laws })
+end)
+
+QBCore.Functions.CreateCallback('aj_mdt:getCitizenProfile', function(source, cb, citizenid)
+    if not IsPolice(source) then cb({ error = 'not_allowed' }) return end
+    if not citizenid then cb({ error = 'missing_citizenid' }) return end
+
+    local player = MySQL.single.await('SELECT citizenid, charinfo, money, job, metadata FROM players WHERE citizenid = ? LIMIT 1', { citizenid })
+    if not player then cb({ error = 'not_found' }) return end
+
+    local charinfo = SafeJson(player.charinfo)
+    local money = SafeJson(player.money)
+    local job = SafeJson(player.job)
+    local metadata = SafeJson(player.metadata)
+
+    local vehicles = MySQL.query.await('SELECT id, vehicle, plate, garage, state FROM player_vehicles WHERE citizenid = ? ORDER BY id DESC', { citizenid }) or {}
+    local cases = MySQL.query.await('SELECT * FROM aj_mdt_cases WHERE citizenid = ? OR citizen_name LIKE ? ORDER BY id DESC', { citizenid, '%' .. (charinfo.firstname or '') .. '%' .. (charinfo.lastname or '') .. '%' }) or {}
+    local wanted = MySQL.query.await('SELECT * FROM aj_mdt_wanted WHERE citizenid = ? OR name LIKE ? ORDER BY id DESC', { citizenid, '%' .. (charinfo.firstname or '') .. '%' .. (charinfo.lastname or '') .. '%' }) or {}
+
+    local properties = {}
+    if TableExists('player_houses') then
+        properties = MySQL.query.await('SELECT * FROM player_houses WHERE citizenid = ? OR identifier = ?', { citizenid, citizenid }) or {}
+    elseif TableExists('apartments') then
+        properties = MySQL.query.await('SELECT * FROM apartments WHERE citizenid = ?', { citizenid }) or {}
+    end
+
+    cb({
+        citizen = {
+            citizenid = citizenid,
+            name = ((charinfo.firstname or '') .. ' ' .. (charinfo.lastname or '')),
+            firstname = charinfo.firstname or '',
+            lastname = charinfo.lastname or '',
+            phone = charinfo.phone or 'N/A',
+            birthdate = charinfo.birthdate or 'N/A',
+            gender = charinfo.gender or 'N/A',
+            nationality = charinfo.nationality or 'N/A',
+            bank = money.bank or 0,
+            cash = money.cash or 0,
+            crypto = money.crypto or 0,
+            job = job.label or job.name or 'Unemployed',
+            grade = job.grade and (job.grade.name or job.grade.level) or 'N/A',
+            metadata = metadata
+        },
+        vehicles = vehicles,
+        properties = properties,
+        cases = cases,
+        wanted = wanted
+    })
 end)
 
 RegisterNetEvent('aj_mdt:addCase', function(data)

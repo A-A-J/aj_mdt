@@ -292,6 +292,37 @@ RegisterNetEvent('aj_mdt:addCase', function(data)
     AddLog(src, 'create_case', 'Created case: ' .. tostring(data.title or 'Untitled Case'))
 end)
 
+RegisterNetEvent('aj_mdt:updateCase', function(data)
+    local src = source
+    if not HasPermission(src, 'edit_case') then return end
+    if not data or not data.id then return end
+
+    local suspects = data.suspects or {}
+    local mainSuspect = suspects[1] or {}
+
+    MySQL.update([[
+        UPDATE aj_mdt_cases
+        SET title = ?, citizenid = ?, citizen_name = ?, status = ?, case_type = ?, content = ?, description = ?, officers = ?, suspects = ?, violations = ?, action_taken = ?, extra_details = ?
+        WHERE id = ?
+    ]], {
+        data.title or 'Untitled Case',
+        mainSuspect.citizenid or data.citizenid or nil,
+        mainSuspect.name or data.citizen or nil,
+        data.status or 'غير منفذة',
+        data.caseType or 'قضية',
+        data.content or '',
+        data.extra or data.description or '',
+        json.encode(data.officers or {}),
+        json.encode(data.suspects or {}),
+        json.encode(data.violations or {}),
+        data.action or nil,
+        data.extra or nil,
+        data.id
+    })
+
+    AddLog(src, 'edit_case', 'Edited case #' .. tostring(data.id))
+end)
+
 RegisterNetEvent('aj_mdt:executeCase', function(caseId)
     local src = source
     if not HasPermission(src, 'execute_case') then return end

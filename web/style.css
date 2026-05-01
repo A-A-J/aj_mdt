@@ -5,31 +5,25 @@
   --panel: #11161c;
   --panel-soft: #0f1419;
   --line: rgba(255,255,255,.06);
-  --line-strong: rgba(255,255,255,.12);
   --text: #e6edf3;
   --muted: #8b949e;
   --accent: #2f81f7;
-  --accent-soft: rgba(47,129,247,.12);
   --danger: #da3633;
 }
-
-body { margin:0; font-family: Inter, Arial; background: transparent; color: var(--text); }
+body { margin:0; font-family: Inter, Arial; color: var(--text); }
 .hidden { display:none !important }
 #app { width:100vw;height:100vh;display:flex;align-items:center;justify-content:center }
-.container { width:var(--ui-width);height:var(--ui-height);display:flex;background:var(--bg);border-radius:14px;border:1px solid var(--line) }
-.sidebar { width:210px;background:#0d1117;border-right:1px solid var(--line);padding:20px;display:flex;flex-direction:column }
-.brand { font-size:20px;font-weight:700;margin-bottom:20px }
-.brand small { display:block;color:var(--muted);font-size:11px }
-.nav { padding:10px;border-radius:8px;color:var(--muted);cursor:pointer }
-.nav.active,.nav:hover { background:var(--accent-soft);color:#fff }
-.content { flex:1;padding:30px }
-.panel { background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:12px }
-button { background:var(--panel-soft);border:1px solid var(--line);color:#fff;padding:8px 12px;border-radius:6px }
-button:hover { background:var(--accent-soft);border-color:var(--accent) }
-.primary { background:var(--accent-soft);border-color:var(--accent) }
-.aj-table { width:100%;border-collapse:collapse }
-.aj-table th { color:var(--muted);text-align:left;border-bottom:1px solid var(--line) }
-.aj-table td { padding:8px;border-bottom:1px solid var(--line) }
-.aj-table tr:hover { background:rgba(255,255,255,.03) }
-.citizen-avatar { border-radius:8px }
-.toast { position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#161b22;border:1px solid var(--line);padding:10px 16px;border-radius:8px }
+.container { width:var(--ui-width);height:var(--ui-height);display:flex;flex-direction:column;background:var(--bg);border-radius:12px;border:1px solid var(--line) }
+.mdt-header{display:flex;justify-content:space-between;align-items:center;padding:10px 20px;border-bottom:1px solid var(--line);background:#0d1117}
+.officer-info{display:flex;align-items:center;gap:10px}
+.officer-info img{width:40px;height:40px;border-radius:6px}
+.header-search input{width:350px;padding:8px;border-radius:6px;border:1px solid var(--line);background:#111;color:#fff}
+.header-actions{display:flex;gap:8px}
+.mdt-body{display:flex;height:100%}
+.sidebar{width:200px;background:#0d1117;border-right:1px solid var(--line);padding:15px}
+.content{flex:1;padding:20px}
+.nav{padding:10px;color:var(--muted);cursor:pointer}
+.nav.active,.nav:hover{background:rgba(47,129,247,.1);color:#fff}
+.panel{background:var(--panel);padding:15px;border-radius:8px;margin-bottom:10px}
+button{background:#111;border:1px solid var(--line);color:#fff;padding:6px 10px;border-radius:6px}
+button:hover{background:rgba(47,129,247,.15)}

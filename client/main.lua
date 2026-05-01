@@ -8,7 +8,13 @@ end
 RegisterCommand('mdt', function()
     if IsPolice() then
         SetNuiFocus(true, true)
-        SendNUIMessage({ action = 'open' })
+        SendNUIMessage({
+            action = 'open',
+            config = {
+                locale = Config.Locale,
+                ui = Config.UI
+            }
+        })
     end
 end)
 

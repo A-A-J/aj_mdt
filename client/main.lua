@@ -1,12 +1,17 @@
 local QBCore = exports['qb-core']:GetCoreObject()
 
-local function IsPolice()
+local function HasPermission()
     local Player = QBCore.Functions.GetPlayerData()
-    return Player and Player.job and Config.PoliceJobs[Player.job.name]
+    if not Player or not Player.job then return false end
+
+    local job = Player.job.name
+    local cfg = Config.AuthorizedJobs[job]
+
+    return cfg and cfg.permissions and cfg.permissions.access
 end
 
 RegisterCommand('mdt', function()
-    if IsPolice() then
+    if HasPermission() then
         SetNuiFocus(true, true)
         SendNUIMessage({
             action = 'open',
